@@ -1,0 +1,147 @@
+#!/bin/bash
+SCRIPT_NAME=$(basename "$0")
+KUBE_HOME="${KUBE_HOME:=$HOME/.kube}"
+KUBE_CONFIGS_DIR="${KUBE_CONFIGS_DIR:=$KUBE_HOME/configs}"
+
+#
+# list kubeconfig files
+#
+function list() {
+    if [[ -d "$KUBE_CONFIGS_DIR" ]]; then
+        echo 'available kubeconfig files:'
+        echo "$KUBE_CONFIGS_DIR"
+        pushd "$KUBE_CONFIGS_DIR" > /dev/null
+        ls -l
+        popd > /dev/null
+        echo
+    fi
+    if [[ -d "$KUBE_HOME" ]]; then
+        echo 'current kubeconfig file:'
+        echo "$KUBE_HOME"
+        pushd "$KUBE_HOME" > /dev/null
+        ls -l config
+        popd > /dev/null
+    fi
+}
+
+#
+# select a kubeconfig
+#
+function selectconfig() {
+    selectconfig_parse_opts "$@"
+    [[ ! -f "$KUBE_CONFIGS_DIR/$KUBE_CONFIG" ]] && echo "[ERROR] kubeconfig not found: $KUBE_CONFIGS_DIR/$KUBE_CONFIG" && exit 1
+    cp "$KUBE_CONFIGS_DIR/$KUBE_CONFIG" "$KUBE_HOME/config"
+}
+
+function selectconfig_parse_opts() {
+    if [[ $# = 0 ]]; then
+        selectconfig_help
+    fi
+    if [[ "$1" = '-h' ]]; then
+        selectconfig_help
+    fi
+    KUBE_CONFIG="$1"
+}
+
+function selectconfig_help() {
+    local command='select'
+    printf 'Usage: %s %s <kubeconfig> [-h]\n' "$SCRIPT_NAME" $command
+    printf '\t%s\n' '-h: Prints help'
+    exit 0
+}
+
+#
+# exec k9s in a given context
+#
+function exec_k9s() {
+    exec_k9s_parse_opts "$@"
+    [[ ! -f "$KUBE_CONFIGS_DIR/$KUBE_CONFIG" ]] && echo "[ERROR] kubeconfig not found: $KUBE_CONFIGS_DIR/$KUBE_CONFIG" && exit 1
+    k9s --kubeconfig "$KUBE_CONFIGS_DIR/$KUBE_CONFIG"
+}
+
+function exec_k9s_parse_opts() {
+    if [[ $# = 0 ]]; then
+        use_exec_k9s
+    fi
+    if [[ "$1" = '-h' ]]; then
+        use_exec_k9s
+    fi
+    KUBE_CONFIG="$1"
+}
+
+function use_exec_k9s() {
+    local command='k9s'
+    printf 'Usage: %s %s <context> [-h]\n' "$SCRIPT_NAME" $command
+    printf '\t%s\n' '-h: Prints help'
+    exit 0
+}
+
+#
+# remove kubeconfig file
+#
+function remove() {
+    remove_parse_opts "$@"
+    rm "$KUBE_CONFIGS_DIR/$KUBE_CONFIG"
+}
+
+function remove_parse_opts() {
+    if [[ $# = 0 ]]; then
+        remove_help
+    fi
+    if [[ "$1" = '-h' ]]; then
+        remove_help
+    fi
+    KUBE_CONFIG="$1"
+}
+
+function remove_help() {
+    local command='remove'
+    printf 'Usage: %s %s <kubeconfig> [-h]\n' "$SCRIPT_NAME" $command
+    printf '\t%s\n' '-h: Prints help'
+    exit 0
+}
+
+function parse_command_line() {
+    if [[ $# -eq 0 ]]; then
+        help
+    fi
+    case "$1" in
+        -h|--help)
+            help
+            ;;
+        -h*)
+            help
+            ;;
+        list|ls)
+            list
+            ;;
+        select|s)
+            shift
+            selectconfig "$@"
+            ;;
+        k9s|9)
+            shift
+            exec_k9s "$@"
+            ;;
+        remove|rm)
+            shift
+            remove "$@"
+            ;;
+        *)
+            help
+            ;;
+    esac
+}
+
+function help() {
+    printf 'Usage: %s <command> [-h]\n' "$SCRIPT_NAME"
+    echo 'commands:'
+    echo 'ls|list: list kubeconfig files'
+    echo 's|select <kubeconfig>: select a kubeconfig file'
+    echo '9|k9s <context>: exec k9s with the context of a kubeconfig file'
+    echo 'rm|remove <kubeconfig>: remove kubeconfig file'
+    echo '-h: prints help'
+    exit 0
+}
+
+parse_command_line "$@"
