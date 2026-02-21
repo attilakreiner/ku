@@ -77,6 +77,97 @@ function use_exec_k9s() {
 }
 
 #
+# spawn a subshell with a given kubeconfig
+#
+function exec_shell() {
+    exec_shell_parse_opts "$@"
+    [[ ! -f "$KUBE_CONFIGS_DIR/$KUBE_CONFIG" ]] && echo "[ERROR] kubeconfig not found: $KUBE_CONFIGS_DIR/$KUBE_CONFIG" && exit 1
+    KUBECONFIG="$KUBE_CONFIGS_DIR/$KUBE_CONFIG" $SHELL
+}
+
+function exec_shell_parse_opts() {
+    if [[ $# = 0 ]]; then
+        exec_shell_help
+    fi
+    if [[ "$1" = '-h' ]]; then
+        exec_shell_help
+    fi
+    KUBE_CONFIG="$1"
+}
+
+function exec_shell_help() {
+    local command='shell'
+    printf 'Usage: %s %s <kubeconfig> [-h]\n' "$SCRIPT_NAME" $command
+    printf '\t%s\n' '-h: Prints help'
+    exit 0
+}
+
+#
+# print the current kubeconfig path
+#
+function print_config_path() {
+    local path
+    if [[ -n "$KUBECONFIG" ]]; then
+        path="$KUBECONFIG"
+    elif [[ -f "$KUBE_HOME/config" ]]; then
+        path="$KUBE_HOME/config"
+    else
+        path='[none]'
+    fi
+    printf '\033[1;97m%s\033[0m\n' "$path"
+}
+
+#
+# print the current kubeconfig contents
+#
+function print_config() {
+    local path
+    if [[ -n "$KUBECONFIG" ]]; then
+        path="$KUBECONFIG"
+    elif [[ -f "$KUBE_HOME/config" ]]; then
+        path="$KUBE_HOME/config"
+    else
+        path='[none]'
+    fi
+    if [[ "$path" == '[none]' ]]; then
+        echo '[none]'
+    else
+        cat "$path"
+    fi
+}
+
+#
+# print the current kubeconfig path and contents
+#
+function print_config_all() {
+    echo "Shell Level: $SHLVL"
+    echo ---
+    local path
+    if [[ -n "$KUBECONFIG" ]]; then
+        path="$KUBECONFIG"
+    elif [[ -f "$KUBE_HOME/config" ]]; then
+        path="$KUBE_HOME/config"
+    else
+        path='[none]'
+    fi
+    printf '\033[1;97m%s\033[0m\n' "$path"
+    if [[ "$path" != '[none]' ]]; then
+        echo ---
+        cat "$path"
+    fi
+}
+
+#
+# copy current ~/.kube/config to ~/.kube/configs/<name>
+#
+function copyconfig() {
+    [[ $# = 0 ]] && echo "Usage: $SCRIPT_NAME cp <name>" && exit 1
+    mkdir -p "$KUBE_CONFIGS_DIR"
+    cp "$KUBE_HOME/config" "$KUBE_CONFIGS_DIR/$1"
+    echo "copied $KUBE_HOME/config -> $KUBE_CONFIGS_DIR/$1"
+}
+
+#
 # remove kubeconfig file
 #
 function remove() {
@@ -127,6 +218,23 @@ function parse_command_line() {
             shift
             remove "$@"
             ;;
+        shell|sh)
+            shift
+            exec_shell "$@"
+            ;;
+        cp|copy)
+            shift
+            copyconfig "$@"
+            ;;
+        print|p)
+            print_config
+            ;;
+        printpath|pp)
+            print_config_path
+            ;;
+        printall|pa)
+            print_config_all
+            ;;
         *)
             help
             ;;
@@ -139,6 +247,11 @@ function help() {
     echo 'ls|list: list kubeconfig files'
     echo 's|select <kubeconfig>: select a kubeconfig file'
     echo '9|k9s <context>: exec k9s with the context of a kubeconfig file'
+    echo 'sh|shell <kubeconfig>: spawn a subshell with the kubeconfig isolated to this session'
+    echo 'p|print: print the current kubeconfig contents'
+    echo 'pp|printpath: print the current kubeconfig path'
+    echo 'pa|printall: print the current kubeconfig path and contents'
+    echo 'cp|copy <name>: copy current kubeconfig to configs/<name>'
     echo 'rm|remove <kubeconfig>: remove kubeconfig file'
     echo '-h: prints help'
     exit 0
