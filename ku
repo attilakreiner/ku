@@ -77,6 +77,36 @@ function use_exec_k9s() {
 }
 
 #
+# exec a command with a given kubeconfig
+#
+function exec_cmd() {
+    exec_cmd_parse_opts "$@"
+    [[ ! -f "$KUBE_CONFIGS_DIR/$KUBE_CONFIG" ]] && echo "[ERROR] kubeconfig not found: $KUBE_CONFIGS_DIR/$KUBE_CONFIG" && exit 1
+    KUBECONFIG="$KUBE_CONFIGS_DIR/$KUBE_CONFIG" "${CMD[@]}"
+}
+
+function exec_cmd_parse_opts() {
+    if [[ $# = 0 ]]; then
+        exec_cmd_help
+    fi
+    if [[ "$1" = '-h' ]]; then
+        exec_cmd_help
+    fi
+    KUBE_CONFIG="$1"
+    shift
+    [[ "$1" = '--' ]] && shift
+    CMD=("$@")
+    [[ ${#CMD[@]} = 0 ]] && exec_cmd_help
+}
+
+function exec_cmd_help() {
+    local command='exec'
+    printf 'Usage: %s %s <kubeconfig> -- <command> [args...]\n' "$SCRIPT_NAME" $command
+    printf '\t%s\n' '-h: Prints help'
+    exit 0
+}
+
+#
 # spawn a subshell with a given kubeconfig
 #
 function exec_shell() {
@@ -214,6 +244,10 @@ function parse_command_line() {
             shift
             exec_k9s "$@"
             ;;
+        exec|x)
+            shift
+            exec_cmd "$@"
+            ;;
         remove|rm)
             shift
             remove "$@"
@@ -247,6 +281,7 @@ function help() {
     echo 'ls|list: list kubeconfig files'
     echo 's|select <kubeconfig>: select a kubeconfig file'
     echo '9|k9s <context>: exec k9s with the context of a kubeconfig file'
+    echo 'x|exec <kubeconfig> -- <command>: execute a command with the kubeconfig'
     echo 'sh|shell <kubeconfig>: spawn a subshell with the kubeconfig isolated to this session'
     echo 'p|print: print the current kubeconfig contents'
     echo 'pp|printpath: print the current kubeconfig path'
