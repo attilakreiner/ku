@@ -2,6 +2,7 @@
 SCRIPT_NAME=$(basename "$0")
 KUBE_HOME="${KUBE_HOME:=$HOME/.kube}"
 KUBE_CONFIGS_DIR="${KUBE_CONFIGS_DIR:=$KUBE_HOME/configs}"
+KU_CONF="${KU_CONF:=$KUBE_HOME/ku.conf}"
 
 #
 # list kubeconfig files
@@ -198,11 +199,106 @@ function copyconfig() {
 }
 
 #
-# remove kubeconfig file
+# import (move) a kubeconfig file to ~/.kube/configs/<name>
+#
+function import_config() {
+    import_config_parse_opts "$@"
+    local file
+    file=$(import_config_find "$IMPORT_FILE")
+    [[ -z "$file" ]] && echo "[ERROR] file not found: $IMPORT_FILE" && exit 1
+    IMPORT_FILE="$file"
+    ! grep -Eq '^kind:[[:space:]]*Config' "$IMPORT_FILE" && echo "[ERROR] not a kubeconfig: $IMPORT_FILE" && exit 1
+    [[ -z "$KUBE_CONFIG" ]] && KUBE_CONFIG=$(import_config_name "$IMPORT_FILE")
+    [[ -z "$KUBE_CONFIG" || "$KUBE_CONFIG" == */* ]] && echo "[ERROR] invalid kubeconfig name: '$KUBE_CONFIG'" && exit 1
+    [[ -e "$KUBE_CONFIGS_DIR/$KUBE_CONFIG" && "$FORCE" != true ]] && echo "[ERROR] kubeconfig already exists: $KUBE_CONFIGS_DIR/$KUBE_CONFIG (use -f to overwrite)" && exit 1
+    mkdir -p "$KUBE_CONFIGS_DIR"
+    mv -f "$IMPORT_FILE" "$KUBE_CONFIGS_DIR/$KUBE_CONFIG"
+    chmod 600 "$KUBE_CONFIGS_DIR/$KUBE_CONFIG"
+    echo "imported $IMPORT_FILE -> $KUBE_CONFIGS_DIR/$KUBE_CONFIG"
+}
+
+#
+# find the file to import as given, or else in the directories of ku.conf
+#
+function import_config_find() {
+    local keyword dir
+    [[ -f "$1" ]] && echo "$1" && return
+    [[ ! -f "$KU_CONF" ]] && return
+    while read -r keyword dir || [[ -n "$keyword" ]]; do
+        [[ "$keyword" != directory || -z "$dir" ]] && continue
+        dir="${dir/#\~/$HOME}"
+        [[ -f "$dir/$1" ]] && echo "$dir/$1" && return
+    done < "$KU_CONF"
+}
+
+#
+# derive the kubeconfig name from the file name using the prefix/suffix rules of ku.conf
+#
+function import_config_name() {
+    local name keyword from to
+    name=$(basename "$1")
+    if [[ -f "$KU_CONF" ]]; then
+        while read -r keyword from to || [[ -n "$keyword" ]]; do
+            [[ -z "$from" ]] && continue
+            case "$keyword" in
+                prefix)
+                    [[ "$name" == "$from"* ]] && name="$to${name#"$from"}"
+                    ;;
+                suffix)
+                    [[ "$name" == *"$from" ]] && name="${name%"$from"}$to"
+                    ;;
+            esac
+        done < "$KU_CONF"
+    fi
+    echo "$name"
+}
+
+function import_config_parse_opts() {
+    local args=()
+    FORCE=false
+    for arg in "$@"; do
+        case "$arg" in
+            -f)
+                FORCE=true
+                ;;
+            -*)
+                import_config_help
+                ;;
+            *)
+                args+=("$arg")
+                ;;
+        esac
+    done
+    [[ ${#args[@]} = 0 || ${#args[@]} -gt 2 ]] && import_config_help
+    IMPORT_FILE="${args[0]}"
+    KUBE_CONFIG="${args[1]}"
+}
+
+function import_config_help() {
+    local command='import'
+    printf 'Usage: %s %s <file> [name] [-f] [-h]\n' "$SCRIPT_NAME" $command
+    printf '\t%s\n' '-f: Overwrite existing kubeconfig'
+    printf '\t%s\n' '-h: Prints help'
+    printf '%s\n' "If the file is not found, it is looked up in the directories of $KU_CONF"
+    printf '%s\n' "The name defaults to the file name rewritten by the prefix/suffix rules of $KU_CONF"
+    exit 0
+}
+
+#
+# remove kubeconfig files
 #
 function remove() {
     remove_parse_opts "$@"
-    rm "$KUBE_CONFIGS_DIR/$KUBE_CONFIG"
+    local status=0
+    for KUBE_CONFIG in "${KUBE_CONFIGS[@]}"; do
+        if [[ ! -f "$KUBE_CONFIGS_DIR/$KUBE_CONFIG" ]]; then
+            echo "[ERROR] kubeconfig not found: $KUBE_CONFIGS_DIR/$KUBE_CONFIG"
+            status=1
+            continue
+        fi
+        rm "$KUBE_CONFIGS_DIR/$KUBE_CONFIG" && echo "removed $KUBE_CONFIGS_DIR/$KUBE_CONFIG" || status=1
+    done
+    exit $status
 }
 
 function remove_parse_opts() {
@@ -212,12 +308,12 @@ function remove_parse_opts() {
     if [[ "$1" = '-h' ]]; then
         remove_help
     fi
-    KUBE_CONFIG="$1"
+    KUBE_CONFIGS=("$@")
 }
 
 function remove_help() {
     local command='remove'
-    printf 'Usage: %s %s <kubeconfig> [-h]\n' "$SCRIPT_NAME" $command
+    printf 'Usage: %s %s <kubeconfig>... [-h]\n' "$SCRIPT_NAME" $command
     printf '\t%s\n' '-h: Prints help'
     exit 0
 }
@@ -260,6 +356,10 @@ function parse_command_line() {
             shift
             copyconfig "$@"
             ;;
+        import|i)
+            shift
+            import_config "$@"
+            ;;
         print|p)
             print_config
             ;;
@@ -287,7 +387,8 @@ function help() {
     echo 'pp|printpath: print the current kubeconfig path'
     echo 'pa|printall: print the current kubeconfig path and contents'
     echo 'cp|copy <name>: copy current kubeconfig to configs/<name>'
-    echo 'rm|remove <kubeconfig>: remove kubeconfig file'
+    echo 'i|import <file> [name] [-f]: move a kubeconfig file to configs/<name>'
+    echo 'rm|remove <kubeconfig>...: remove kubeconfig files'
     echo '-h: prints help'
     exit 0
 }
